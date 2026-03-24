@@ -9,7 +9,8 @@ import {
   TeamOutlined,
   UserOutlined,
   SafetyCertificateOutlined,
-  AppstoreOutlined
+  AppstoreOutlined,
+  IdcardOutlined
 } from '@ant-design/icons';
 import { BookingFormPage } from './pages/BookingFormPage';
 import { RecordsPage } from './pages/RecordsPage';
@@ -20,6 +21,7 @@ import { UsersPage } from './pages/UsersPage';
 import { RolesPage } from './pages/RolesPage';
 import { ExperimentersPage } from './pages/ExperimentersPage';
 import { SeqTypesPage } from './pages/SeqTypesPage';
+import { PmOwnersPage } from './pages/PmOwnersPage';
 import { can, getCurrentUser, isLoggedIn, logout, setCurrentUser } from './auth';
 import { api } from './api';
 
@@ -31,6 +33,7 @@ const items = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: '订单状态', permission: 'booking:read' },
   { key: '/analytics', icon: <AreaChartOutlined />, label: '统计趋势', permission: 'analytics:read' },
   { key: '/experimenters', icon: <TeamOutlined />, label: '实验员配置', permission: 'experimenter:manage' },
+  { key: '/pm-owners', icon: <IdcardOutlined />, label: 'PM配置', permission: 'pm-owner:manage' },
   { key: '/seq-types', icon: <AppstoreOutlined />, label: '测序类型配置', permission: 'seq-type:manage' },
   { key: '/users', icon: <UserOutlined />, label: '用户管理', permission: 'user:manage' },
   { key: '/roles', icon: <SafetyCertificateOutlined />, label: '角色管理', permission: 'role:manage' }
@@ -105,6 +108,7 @@ export function App() {
             <Route path="/dashboard" element={authed ? <DashboardPage /> : <Navigate to="/login" replace />} />
             <Route path="/analytics" element={authed ? <AnalyticsPage /> : <Navigate to="/login" replace />} />
             <Route path="/experimenters" element={authed && can('experimenter:manage') ? <ExperimentersPage /> : <Navigate to="/records" replace />} />
+            <Route path="/pm-owners" element={authed && can('pm-owner:manage') ? <PmOwnersPage /> : <Navigate to="/records" replace />} />
             <Route path="/seq-types" element={authed && can('seq-type:manage') ? <SeqTypesPage /> : <Navigate to="/records" replace />} />
             <Route path="/users" element={authed && can('user:manage') ? <UsersPage /> : <Navigate to="/records" replace />} />
             <Route path="/roles" element={authed && can('role:manage') ? <RolesPage /> : <Navigate to="/records" replace />} />

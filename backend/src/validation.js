@@ -9,16 +9,13 @@ const contractNoSchema = z
   .max(64)
   .regex(/^[A-Za-z0-9][A-Za-z0-9._\-\/]*$/, '合同编号仅允许字母数字及 . _ - /');
 
-const contactSchema = z
+/** 中国大陆手机号：11 位 1[3-9]…，提交前去除空白 */
+const mobilePhoneSchema = z
   .string()
   .min(1)
-  .max(128)
-  .refine((s) => {
-    const v = s.trim();
-    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
-    const isPhone = /^\+?\d[\d\s\-]{6,20}\d$/.test(v);
-    return isEmail || isPhone;
-  }, '联系方式需为邮箱或手机号（可含空格/短横线/+）');
+  .max(64)
+  .transform((s) => String(s).replace(/\s+/g, ''))
+  .refine((s) => /^1[3-9]\d{9}$/.test(s), '手机格式错误');
 
 const dateTimeSchema = z
   .string()
@@ -35,9 +32,9 @@ function ymdPart(s) {
 }
 
 /**
- * 出差服务范围 [tripStart, tripEnd] 与上门订单 [visitTime, serviceEndTime] 一致性
- * - 多日出差：上门区间须完全落在出差区间内
+ * 出差服务范围 [tripStart, tripEnd] 与上门 [visitTime, serviceEndTime] 一致性
  * - 单日出差：上门须与出差范围完全一致（由前端同步）
+ * - 多日出差：具体上门服务时刻 visitTime 须在出差区间内；结束时间由前端按「上门后 1 小时」等规则生成，且须落在区间内
  */
 export function assertBookingTripVisitConsistency(v) {
   const t0 = parseDt(v.tripStart);
@@ -46,14 +43,17 @@ export function assertBookingTripVisitConsistency(v) {
   const ve = parseDt(v.serviceEndTime);
   if (![t0, t1, vs, ve].every(Number.isFinite)) return '时间格式不合法';
   if (!(t1 > t0)) return '出差服务结束须晚于开始';
-  if (!(ve > vs)) return '上门订单结束须晚于开始';
+  if (!(ve > vs)) return '服务结束须晚于上门服务时间';
   if (ymdPart(v.tripStart) === ymdPart(v.tripEnd)) {
     if (vs !== t0 || ve !== t1) {
       return '单日出差时，上门订单时间须与出差服务范围一致';
     }
   } else {
-    if (vs < t0 || ve > t1) {
-      return '上门订单时间须在出差服务范围之内';
+    if (vs < t0 || vs > t1) {
+      return '上门服务时间须在出差服务范围之内';
+    }
+    if (ve > t1) {
+      return '服务结束时间须在出差服务范围之内';
     }
   }
   return null;
@@ -64,7 +64,7 @@ const bookingBaseSchema = z.object({
   contractNo: contractNoSchema,
   customerUnit: z.string().min(1).max(128),
   customerName: z.string().min(1).max(64),
-  customerContact: contactSchema,
+  customerContact: mobilePhoneSchema,
 
   needDissociation: z.boolean().default(false),
   sampleInfo: z.string().min(1).max(255),
@@ -79,8 +79,11 @@ const bookingBaseSchema = z.object({
   sampleCount: z.number().int().min(1),
 
   seqType: z.string().trim().min(1).max(128),
+  seqDataVolume: z.string().trim().max(64).optional().nullable(),
+  pmOwner: z.string().trim().max(64).optional().nullable(),
   platform: z.enum(PLATFORMS),
-  notifyMethods: notifyMethodSchema
+  notifyMethods: notifyMethodSchema,
+  remark: z.string().trim().max(1000).optional().nullable()
 });
 
 export const bookingCreateSchema = bookingBaseSchema.superRefine((v, ctx) => {
@@ -142,6 +145,7 @@ export const bookingListQuerySchema = z.object({
   experimenter: z.string().optional(),
   sampleCount: z.string().optional(),
   seqType: z.string().optional(),
+  pmOwner: z.string().optional(),
   platform: z.string().optional(),
   status: z.string().optional(),
   visitFrom: z.string().optional(),

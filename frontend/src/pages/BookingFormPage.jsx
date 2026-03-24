@@ -33,12 +33,20 @@ function ColorDot({ color }) {
   );
 }
 
+/** 与后端 calendar/summary 一致：按当日样本合计 busyLevel */
+function busyLevelDotColor(code) {
+  if (code === 'busy') return '#faad14';
+  if (code === 'full') return '#ff4d4f';
+  return '#52c41a';
+}
+
 export function BookingFormPage() {
   const dispatch = useDispatch();
   const canCreate = can('booking:create');
   const [submitting, setSubmitting] = useState(false);
   const [experimenters, setExperimenters] = useState([]);
   const [seqTypeOptions, setSeqTypeOptions] = useState([]);
+  const [pmOwners, setPmOwners] = useState([]);
   const [summary, setSummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
 
@@ -87,6 +95,22 @@ export function BookingFormPage() {
       .catch(() => {
         if (!mounted) return;
         setExperimenters([]);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    api.listPmOwners()
+      .then((r) => {
+        if (!mounted) return;
+        setPmOwners((r.items || []).filter((p) => p.isActive));
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setPmOwners([]);
       });
     return () => {
       mounted = false;
@@ -164,11 +188,17 @@ export function BookingFormPage() {
         remainingExperimenters: Number(summary?.activeExperimenters || 0),
         busyLevel: 'idle'
       };
+      const dotColor = busyLevelDotColor(resolved.busyLevel);
       return (
-        <div style={{ fontSize: 11, lineHeight: 1.35 }}>
-          <div>{resolved.orderCount} 单</div>
-          <div style={{ marginTop: 2 }}>
-            样本 {resolved.sampleSum} · 剩余实验员 {resolved.remainingExperimenters}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 11, lineHeight: 1.35 }}>
+          <span style={{ flexShrink: 0, marginTop: 3 }}>
+            <ColorDot color={dotColor} />
+          </span>
+          <div style={{ minWidth: 0 }}>
+            <div>{resolved.orderCount} 单</div>
+            <div style={{ marginTop: 2 }}>
+              样本 {resolved.sampleSum} · 剩余实验员 {resolved.remainingExperimenters}
+            </div>
           </div>
         </div>
       );
@@ -184,18 +214,32 @@ export function BookingFormPage() {
     loadDay(ymd);
   };
 
+  /** 与 `BookingForm` 字段顺序、文案一致，并保留「状态」便于查看进度 */
   const dayColumns = [
+    { title: '销售姓名', dataIndex: 'salesName', width: 100 },
     { title: '合同编号', dataIndex: 'contractNo', width: 120 },
     { title: '客户单位', dataIndex: 'customerUnit', width: 160 },
-    { title: '客户', dataIndex: 'customerName', width: 90 },
-    { title: '出差范围起', dataIndex: 'tripStart', width: 130, render: (v) => v || '—' },
-    { title: '出差范围止', dataIndex: 'tripEnd', width: 130, render: (v) => v || '—' },
-    { title: '上门开始', dataIndex: 'visitTime', width: 155 },
-    { title: '上门结束', dataIndex: 'serviceEndTime', width: 155 },
-    { title: '实验员', dataIndex: 'experimenter', width: 90 },
-    { title: '样本', dataIndex: 'sampleCount', width: 60 },
-    { title: '测序类型', dataIndex: 'seqType', width: 140 },
-    { title: '状态', dataIndex: 'status', width: 80, render: (v) => statusLabel(v) }
+    { title: '客户姓名', dataIndex: 'customerName', width: 100 },
+    { title: '客户联系方式', dataIndex: 'customerContact', width: 120 },
+    { title: '是否解离', dataIndex: 'needDissociation', width: 100, render: (v) => (v ? '是' : '否') },
+    { title: '样本及样本类型', dataIndex: 'sampleInfo', width: 180, render: (v) => v || '—' },
+    { title: '出差范围起', dataIndex: 'tripStart', width: 150, render: (v) => v || '—' },
+    { title: '出差范围止', dataIndex: 'tripEnd', width: 150, render: (v) => v || '—' },
+    { title: '上门服务时间', dataIndex: 'visitTime', width: 170 },
+    { title: '上门实验员', dataIndex: 'experimenter', width: 100 },
+    { title: '样本数量', dataIndex: 'sampleCount', width: 80 },
+    { title: '测序类型', dataIndex: 'seqType', width: 160 },
+    { title: '测序数据量', dataIndex: 'seqDataVolume', width: 120, render: (v) => v || '—' },
+    { title: 'PM负责人', dataIndex: 'pmOwner', width: 100, render: (v) => v || '—' },
+    { title: '实验平台', dataIndex: 'platform', width: 90 },
+    {
+      title: '通知方式',
+      dataIndex: 'notifyMethods',
+      width: 160,
+      render: (v) => (Array.isArray(v) ? v.join('、') : '')
+    },
+    { title: '备注', dataIndex: 'remark', width: 180, render: (v) => v || '—' },
+    { title: '状态', dataIndex: 'status', width: 90, render: (v) => statusLabel(v) }
   ];
 
   return (
@@ -217,15 +261,15 @@ export function BookingFormPage() {
         <Space size={12} style={{ marginBottom: 8, fontSize: 12 }}>
           <Space size={6}>
             <ColorDot color="#52c41a" />
-            <span style={{ color: '#000' }}>≤8 单不忙</span>
+            <span style={{ color: '#000' }}>≤8 样本不忙</span>
           </Space>
           <Space size={6}>
             <ColorDot color="#faad14" />
-            <span style={{ color: '#000' }}>9-16 单忙碌</span>
+            <span style={{ color: '#000' }}>9-16 样本忙碌</span>
           </Space>
           <Space size={6}>
             <ColorDot color="#ff4d4f" />
-            <span style={{ color: '#000' }}>{'>=17 单爆满'}</span>
+            <span style={{ color: '#000' }}>{'>=17 样本爆满'}</span>
           </Space>
         </Space>
         <div className="cardGrid" style={{ marginBottom: 12 }}>
@@ -250,13 +294,13 @@ export function BookingFormPage() {
           setDayModalDate(null);
           setDayDetail(null);
         }}
-        width={960}
+        width={1100}
         footer={null}
         destroyOnClose
       >
         <div className="muted" style={{ marginBottom: 12, fontSize: 13 }}>
           {dayDetail
-            ? `公司当日（与上门时段重叠）共 ${dayDetail.companyOrderCount} 单，样本合计 ${dayDetail.companySampleSum}`
+            ? `公司当日（以上门服务时间所在日期计）共 ${dayDetail.companyOrderCount} 单，样本合计 ${dayDetail.companySampleSum}`
             : null}
         </div>
         <Table
@@ -265,7 +309,7 @@ export function BookingFormPage() {
           loading={dayLoading}
           columns={dayColumns}
           dataSource={dayDetail?.items || []}
-          scroll={{ x: 1100 }}
+          scroll={{ x: 2480 }}
           pagination={false}
         />
       </Modal>
@@ -282,6 +326,7 @@ export function BookingFormPage() {
           <BookingForm
             experimenters={experimenters}
             seqTypeOptions={seqTypeOptions}
+            pmOwners={pmOwners}
             submitting={submitting}
             submitText="提交预约"
             onSubmit={async (payload) => {

@@ -166,6 +166,18 @@ export const api = {
   },
   deleteSeqType(id) {
     return request(`/api/seq-types/${id}`, { method: 'DELETE' });
+  },
+  listPmOwners() {
+    return request('/api/pm-owners');
+  },
+  createPmOwner(body) {
+    return request('/api/pm-owners', { method: 'POST', body: JSON.stringify(body) });
+  },
+  updatePmOwner(id, body) {
+    return request(`/api/pm-owners/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+  },
+  deletePmOwner(id) {
+    return request(`/api/pm-owners/${id}`, { method: 'DELETE' });
   }
 };
 

@@ -154,7 +154,10 @@ CREATE TABLE IF NOT EXISTS bookings (
   sample_count INT NOT NULL,
 
   seq_type VARCHAR(64) NOT NULL,
+  seq_data_volume VARCHAR(64) NULL,
+  pm_owner VARCHAR(64) NULL,
   platform ENUM('寻因', '10x') NOT NULL,
+  remark TEXT NULL,
   notify_methods JSON NULL,
   created_by_user_id BIGINT UNSIGNED NULL,
 
@@ -164,7 +167,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
   PRIMARY KEY (id),
-  UNIQUE KEY uniq_contract_no (contract_no),
+  KEY idx_contract_no (contract_no),
   KEY idx_visit_time (visit_time),
   KEY idx_service_end_time (service_end_time),
   KEY idx_sales_name (sales_name),
@@ -192,6 +195,18 @@ CREATE TABLE IF NOT EXISTS experimenters (
   PRIMARY KEY (id),
   UNIQUE KEY uniq_experimenter_name (name),
   KEY idx_experimenter_active (is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS pm_owners (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  name VARCHAR(64) NOT NULL,
+  email VARCHAR(128) NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uniq_pm_owner_name (name),
+  KEY idx_pm_owner_active (is_active)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS seq_type_custom (
@@ -267,6 +282,70 @@ SET @created_by_idx_sql := IF(
 PREPARE stmt_bookings_created_by_idx FROM @created_by_idx_sql;
 EXECUTE stmt_bookings_created_by_idx;
 DEALLOCATE PREPARE stmt_bookings_created_by_idx;
+
+SET @seq_data_volume_col_exists := (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'bookings'
+    AND COLUMN_NAME = 'seq_data_volume'
+);
+SET @seq_data_volume_col_sql := IF(
+  @seq_data_volume_col_exists = 0,
+  'ALTER TABLE bookings ADD COLUMN seq_data_volume VARCHAR(64) NULL AFTER seq_type',
+  'SELECT 1'
+);
+PREPARE stmt_bookings_seq_data_volume_col FROM @seq_data_volume_col_sql;
+EXECUTE stmt_bookings_seq_data_volume_col;
+DEALLOCATE PREPARE stmt_bookings_seq_data_volume_col;
+
+SET @pm_owner_col_exists := (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'bookings'
+    AND COLUMN_NAME = 'pm_owner'
+);
+SET @pm_owner_col_sql := IF(
+  @pm_owner_col_exists = 0,
+  'ALTER TABLE bookings ADD COLUMN pm_owner VARCHAR(64) NULL AFTER seq_data_volume',
+  'SELECT 1'
+);
+PREPARE stmt_bookings_pm_owner_col FROM @pm_owner_col_sql;
+EXECUTE stmt_bookings_pm_owner_col;
+DEALLOCATE PREPARE stmt_bookings_pm_owner_col;
+
+SET @remark_col_exists := (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'bookings'
+    AND COLUMN_NAME = 'remark'
+);
+SET @remark_col_sql := IF(
+  @remark_col_exists = 0,
+  'ALTER TABLE bookings ADD COLUMN remark TEXT NULL AFTER platform',
+  'SELECT 1'
+);
+PREPARE stmt_bookings_remark_col FROM @remark_col_sql;
+EXECUTE stmt_bookings_remark_col;
+DEALLOCATE PREPARE stmt_bookings_remark_col;
+
+SET @uniq_contract_no_exists := (
+  SELECT COUNT(*)
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'bookings'
+    AND INDEX_NAME = 'uniq_contract_no'
+);
+SET @uniq_contract_no_sql := IF(
+  @uniq_contract_no_exists = 1,
+  'ALTER TABLE bookings DROP INDEX uniq_contract_no',
+  'SELECT 1'
+);
+PREPARE stmt_drop_uniq_contract_no FROM @uniq_contract_no_sql;
+EXECUTE stmt_drop_uniq_contract_no;
+DEALLOCATE PREPARE stmt_drop_uniq_contract_no;
 
 SET @trip_start_exists := (
   SELECT COUNT(*)
@@ -372,15 +451,15 @@ VALUES
     'super_admin',
     '系统全权限',
     JSON_ARRAY('*'),
-    JSON_ARRAY('/new', '/records', '/dashboard', '/analytics', '/experimenters', '/seq-types', '/users', '/roles'),
+    JSON_ARRAY('/new', '/records', '/dashboard', '/analytics', '/experimenters', '/pm-owners', '/seq-types', '/users', '/roles'),
     1
   ),
   (
     '普通管理员',
     'admin',
     '业务管理权限',
-    JSON_ARRAY('booking:create', 'booking:read', 'booking:update', 'booking:delete', 'booking:export', 'analytics:read', 'experimenter:read', 'experimenter:manage', 'seq-type:manage', 'user:manage'),
-    JSON_ARRAY('/new', '/records', '/dashboard', '/analytics', '/experimenters', '/seq-types', '/users'),
+    JSON_ARRAY('booking:create', 'booking:read', 'booking:update', 'booking:delete', 'booking:export', 'analytics:read', 'experimenter:read', 'experimenter:manage', 'pm-owner:manage', 'seq-type:manage', 'user:manage'),
+    JSON_ARRAY('/new', '/records', '/dashboard', '/analytics', '/experimenters', '/pm-owners', '/seq-types', '/users'),
     1
   ),
   (

@@ -12,6 +12,7 @@ import { rolesRouter } from './routes/roles.js';
 import { systemLogsRouter } from './routes/system-logs.js';
 import { calendarRouter } from './routes/calendar.js';
 import { seqTypesRouter } from './routes/seq-types.js';
+import { pmOwnersRouter } from './routes/pm-owners.js';
 import { getPool } from './db.js';
 import { requireAuth, requirePermission } from './auth.js';
 
@@ -69,6 +70,7 @@ app.use('/api/roles', requireAuth, rolesRouter);
 app.use('/api/system-logs', requireAuth, systemLogsRouter);
 app.use('/api/calendar', requireAuth, calendarRouter);
 app.use('/api/seq-types', requireAuth, seqTypesRouter);
+app.use('/api/pm-owners', requireAuth, pmOwnersRouter);
 
 // 未匹配路由时统一 JSON（避免 Express 默认 HTML「Cannot GET …」）；含日历相关路径时给出排查提示
 app.use((req, res) => {

@@ -4,6 +4,7 @@ export const MENU_OPTIONS = [
   { key: '/dashboard', label: '订单状态' },
   { key: '/analytics', label: '统计趋势' },
   { key: '/experimenters', label: '实验员配置' },
+  { key: '/pm-owners', label: 'PM配置' },
   { key: '/seq-types', label: '测序类型配置' },
   { key: '/users', label: '用户管理' },
   { key: '/roles', label: '角色管理' }
@@ -19,6 +20,7 @@ export const PERMISSION_OPTIONS = [
   { code: 'analytics:read', label: '查看统计' },
   { code: 'experimenter:read', label: '查看实验员' },
   { code: 'experimenter:manage', label: '管理实验员' },
+  { code: 'pm-owner:manage', label: '管理PM负责人' },
   { code: 'seq-type:manage', label: '管理测序类型' },
   { code: 'user:manage', label: '管理用户' },
   { code: 'role:manage', label: '管理角色' }
@@ -37,6 +39,10 @@ export const INTERFACE_PERMISSION_MAP = [
   { method: 'POST', path: '/api/experimenters', permission: 'experimenter:manage' },
   { method: 'PUT', path: '/api/experimenters/:id', permission: 'experimenter:manage' },
   { method: 'DELETE', path: '/api/experimenters/:id', permission: 'experimenter:manage' },
+  { method: 'GET', path: '/api/pm-owners', permission: 'booking:read' },
+  { method: 'POST', path: '/api/pm-owners', permission: 'pm-owner:manage' },
+  { method: 'PUT', path: '/api/pm-owners/:id', permission: 'pm-owner:manage' },
+  { method: 'DELETE', path: '/api/pm-owners/:id', permission: 'pm-owner:manage' },
   { method: 'GET', path: '/api/users', permission: 'user:manage' },
   { method: 'POST', path: '/api/users', permission: 'user:manage' },
   { method: 'PUT', path: '/api/users/:id', permission: 'user:manage' },

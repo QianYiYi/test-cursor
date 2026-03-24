@@ -145,6 +145,7 @@ bookingsRouter.get('/', requirePermission('booking:read'), async (req, res) => {
     experimenter,
     sampleCount,
     seqType,
+    pmOwner,
     platform,
     status,
     visitFrom,
@@ -178,6 +179,7 @@ bookingsRouter.get('/', requirePermission('booking:read'), async (req, res) => {
     params.push(n);
   }
   likeOrEqWhere({ field: 'seq_type', value: seqType, params, where, mode: 'eq' });
+  likeOrEqWhere({ field: 'pm_owner', value: pmOwner, params, where });
   likeOrEqWhere({ field: 'platform', value: platform, params, where, mode: 'eq' });
   likeOrEqWhere({ field: 'status', value: status, params, where, mode: 'eq' });
   if (visitFrom) {
@@ -269,11 +271,11 @@ bookingsRouter.post('/', requirePermission('booking:create'), async (req, res) =
       INSERT INTO bookings
         (sales_name, contract_no, customer_unit, customer_name, customer_contact,
          need_dissociation, sample_info, visit_time, service_end_time, trip_start_time, trip_end_time, experimenter, sample_count,
-         seq_type, platform, notify_methods, status, created_by_user_id)
+         seq_type, seq_data_volume, pm_owner, platform, remark, notify_methods, status, created_by_user_id)
       VALUES
         (?, ?, ?, ?, ?,
          ?, ?, ?, ?, ?, ?, ?, ?,
-         ?, ?, ?, 'pending', ?)
+         ?, ?, ?, ?, ?, ?, 'pending', ?)
       `,
       [
         b.salesName,
@@ -290,7 +292,10 @@ bookingsRouter.post('/', requirePermission('booking:create'), async (req, res) =
         b.experimenter,
         b.sampleCount,
         b.seqType,
+        b.seqDataVolume || null,
+        b.pmOwner || null,
         b.platform,
+        b.remark || null,
         b.notifyMethods ? JSON.stringify(b.notifyMethods) : null,
         req.user.id
       ]
@@ -302,11 +307,11 @@ bookingsRouter.post('/', requirePermission('booking:create'), async (req, res) =
         INSERT INTO bookings
           (sales_name, contract_no, customer_unit, customer_name, customer_contact,
            need_dissociation, sample_info, visit_time, service_end_time, trip_start_time, trip_end_time, experimenter, sample_count,
-           seq_type, platform, notify_methods, status)
+           seq_type, seq_data_volume, pm_owner, platform, remark, notify_methods, status)
         VALUES
           (?, ?, ?, ?, ?,
            ?, ?, ?, ?, ?, ?, ?, ?,
-           ?, ?, ?, 'pending')
+           ?, ?, ?, ?, ?, ?, 'pending')
         `,
         [
           b.salesName,
@@ -323,7 +328,10 @@ bookingsRouter.post('/', requirePermission('booking:create'), async (req, res) =
           b.experimenter,
           b.sampleCount,
           b.seqType,
+          b.seqDataVolume || null,
+          b.pmOwner || null,
           b.platform,
+          b.remark || null,
           b.notifyMethods ? JSON.stringify(b.notifyMethods) : null
         ]
       );
@@ -341,9 +349,6 @@ bookingsRouter.post('/', requirePermission('booking:create'), async (req, res) =
     });
     res.status(201).json({ id: result.insertId, notifySummary });
   } catch (e) {
-    if (e && e.code === 'ER_DUP_ENTRY') {
-      return res.status(409).json({ error: '合同编号已存在', code: 'CONTRACT_NO_EXISTS' });
-    }
     if (e && e.code === 'ER_BAD_FIELD_ERROR' && String(e?.message || '').includes('trip_')) {
       return res.status(503).json({
         error: BOOKING_TRIP_MIGRATION_HINT,
@@ -398,7 +403,10 @@ bookingsRouter.put('/:id', requirePermission('booking:update'), async (req, res)
     experimenter: 'experimenter',
     sampleCount: 'sample_count',
     seqType: 'seq_type',
+    seqDataVolume: 'seq_data_volume',
+    pmOwner: 'pm_owner',
     platform: 'platform',
+    remark: 'remark',
     status: 'status'
   };
 
@@ -527,9 +535,6 @@ bookingsRouter.put('/:id', requirePermission('booking:update'), async (req, res)
 
     res.json({ ok: true });
   } catch (e) {
-    if (e && e.code === 'ER_DUP_ENTRY') {
-      return res.status(409).json({ error: '合同编号已存在', code: 'CONTRACT_NO_EXISTS' });
-    }
     if (e && e.code === 'ER_BAD_FIELD_ERROR' && String(e?.message || '').includes('trip_')) {
       return res.status(503).json({ error: BOOKING_TRIP_MIGRATION_HINT, code: 'DB_MIGRATION_REQUIRED' });
     }

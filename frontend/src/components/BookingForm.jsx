@@ -1,9 +1,28 @@
 import React, { useEffect, useMemo } from 'react';
-import { Button, Card, Checkbox, DatePicker, Form, Input, InputNumber, Select, Space, Switch, Typography } from 'antd';
+import { Button, Card, Checkbox, DatePicker, Form, Input, InputNumber, Select, Space, Switch } from 'antd';
 import dayjs from 'dayjs';
 import { PLATFORMS, SEQ_TYPES } from '../constants';
 
 const { RangePicker } = DatePicker;
+
+/** 多日出差：仅选「上门服务时刻」；结束时间 = 上门后 1 小时，不超过出差结束、且不跨自然日后再截断 */
+function computeServiceEndTime(visitAt, tripEnd) {
+  if (!visitAt?.isValid() || !tripEnd?.isValid()) return null;
+  let end = visitAt.add(1, 'hour');
+  if (end.format('YYYY-MM-DD') !== visitAt.format('YYYY-MM-DD')) {
+    end = visitAt.endOf('day');
+  }
+  if (end.isAfter(tripEnd)) {
+    end = tripEnd;
+  }
+  if (!end.isAfter(visitAt)) {
+    end = visitAt.add(1, 'minute');
+    if (end.isAfter(tripEnd)) {
+      return null;
+    }
+  }
+  return end;
+}
 
 const notifyOptions = [
   { label: '微信', value: '微信' },
@@ -17,13 +36,18 @@ function formatDt(d) {
   return d ? d.format('YYYY-MM-DD HH:mm:ss') : '';
 }
 
+function normalizeMobile(s) {
+  return String(s ?? '').replace(/\s+/g, '');
+}
+
 export function BookingForm({
   initialValues,
   onSubmit,
   submitting,
   submitText = '提交预约',
   experimenters = [],
-  seqTypeOptions
+  seqTypeOptions,
+  pmOwners = []
 }) {
   const [form] = Form.useForm();
   const tripRange = Form.useWatch('tripRange', form);
@@ -37,11 +61,6 @@ export function BookingForm({
   const isLegacyEdit = Boolean(
     initialValues?.id && !initialValues?.tripStart && !initialValues?.tripEnd
   );
-
-  const tripSameDay = useMemo(() => {
-    if (!tripRange?.[0] || !tripRange?.[1]) return false;
-    return tripRange[0].format('YYYY-MM-DD') === tripRange[1].format('YYYY-MM-DD');
-  }, [tripRange]);
 
   useEffect(() => {
     if (!initialValues) {
@@ -58,19 +77,10 @@ export function BookingForm({
     }
     const ts = initialValues.tripStart ? dayjs(initialValues.tripStart) : null;
     const te = initialValues.tripEnd ? dayjs(initialValues.tripEnd) : null;
-    const same =
-      ts &&
-      te &&
-      ts.isValid() &&
-      te.isValid() &&
-      ts.format('YYYY-MM-DD') === te.format('YYYY-MM-DD');
     form.setFieldsValue({
       ...initialValues,
       tripRange: ts && te ? [ts, te] : undefined,
-      visitRange:
-        ts && te && !same
-          ? [dayjs(initialValues.visitTime), dayjs(initialValues.serviceEndTime)]
-          : undefined
+      visitAt: initialValues.visitTime ? dayjs(initialValues.visitTime) : undefined
     });
   }, [initialValues, form, isLegacyEdit]);
 
@@ -87,7 +97,7 @@ export function BookingForm({
               contractNo: values.contractNo,
               customerUnit: values.customerUnit,
               customerName: values.customerName,
-              customerContact: values.customerContact,
+              customerContact: normalizeMobile(values.customerContact),
               needDissociation: Boolean(values.needDissociation),
               sampleInfo: values.sampleInfo,
               visitTime: formatDt(values.visitTime),
@@ -95,8 +105,11 @@ export function BookingForm({
               experimenter: values.experimenter,
               sampleCount: Number(values.sampleCount || 0),
               seqType: values.seqType,
+              seqDataVolume: values.seqDataVolume || null,
+              pmOwner: values.pmOwner || null,
               platform: values.platform,
-              notifyMethods: values.notifyMethods || []
+              notifyMethods: values.notifyMethods || [],
+              remark: values.remark || null
             };
           } else {
             const [tStart, tEnd] = values.tripRange || [];
@@ -105,24 +118,20 @@ export function BookingForm({
             }
             const tripStart = formatDt(tStart);
             const tripEnd = formatDt(tEnd);
-            const sameDay = tStart.format('YYYY-MM-DD') === tEnd.format('YYYY-MM-DD');
-            let visitTime;
-            let serviceEndTime;
-            if (sameDay) {
-              visitTime = tripStart;
-              serviceEndTime = tripEnd;
-            } else {
-              const [v0, v1] = values.visitRange || [];
-              if (!v0 || !v1) return;
-              visitTime = formatDt(v0);
-              serviceEndTime = formatDt(v1);
-            }
+            const va = values.visitAt;
+            if (!va) return;
+            const visitAt = dayjs(va);
+            const tripEndD = dayjs(tEnd);
+            const endAt = computeServiceEndTime(visitAt, tripEndD);
+            if (!endAt) return;
+            const visitTime = formatDt(visitAt);
+            const serviceEndTime = formatDt(endAt);
             payload = {
               salesName: values.salesName,
               contractNo: values.contractNo,
               customerUnit: values.customerUnit,
               customerName: values.customerName,
-              customerContact: values.customerContact,
+              customerContact: normalizeMobile(values.customerContact),
               needDissociation: Boolean(values.needDissociation),
               sampleInfo: values.sampleInfo,
               tripStart,
@@ -132,8 +141,11 @@ export function BookingForm({
               experimenter: values.experimenter,
               sampleCount: Number(values.sampleCount || 0),
               seqType: values.seqType,
+              seqDataVolume: values.seqDataVolume || null,
+              pmOwner: values.pmOwner || null,
               platform: values.platform,
-              notifyMethods: values.notifyMethods || []
+              notifyMethods: values.notifyMethods || [],
+              remark: values.remark || null
             };
           }
           return onSubmit?.(payload);
@@ -156,8 +168,21 @@ export function BookingForm({
           <Form.Item label="客户姓名" name="customerName" rules={[{ required: true, message: '必填' }]}>
             <Input placeholder="请输入客户姓名" />
           </Form.Item>
-          <Form.Item label="客户联系方式" name="customerContact" rules={[{ required: true, message: '必填' }]}>
-            <Input placeholder="手机/邮箱" />
+          <Form.Item
+            label="客户联系方式"
+            name="customerContact"
+            rules={[
+              {
+                validator: (_, value) => {
+                  const s = normalizeMobile(value);
+                  if (!s) return Promise.reject(new Error('必填'));
+                  if (!/^1[3-9]\d{9}$/.test(s)) return Promise.reject(new Error('手机格式错误'));
+                  return Promise.resolve();
+                }
+              }
+            ]}
+          >
+            <Input placeholder="手机" />
           </Form.Item>
           <Form.Item label="是否需要解离" name="needDissociation" valuePropName="checked">
             <Switch checkedChildren="是" unCheckedChildren="否" />
@@ -215,40 +240,36 @@ export function BookingForm({
               >
                 <RangePicker showTime style={{ width: '100%' }} />
               </Form.Item>
-              {tripSameDay && tripRange?.[0] ? (
-                <Typography.Paragraph type="secondary" style={{ gridColumn: '1 / -1', marginBottom: 0 }}>
-                  当前为<strong>单日</strong>出差：上门订单时间与服务范围相同，无需再选「上门订单时间」。
-                </Typography.Paragraph>
-              ) : null}
-              {!tripSameDay && tripRange?.[0] && tripRange?.[1] ? (
-                <Form.Item
-                  label="上门订单时间范围"
-                  name="visitRange"
+              <Form.Item
+                  label="具体上门服务时间"
+                  name="visitAt"
                   style={{ gridColumn: '1 / -1' }}
                   dependencies={['tripRange']}
                   rules={[
-                    { required: true, message: '请选择实际上门时段' },
+                    { required: true, message: '请选择具体上门服务时间' },
                     ({ getFieldValue }) => ({
                       validator(_, value) {
                         const tr = getFieldValue('tripRange');
-                        if (!tr?.[0] || !tr?.[1] || !value?.[0] || !value?.[1]) {
+                        if (!tr?.[0] || !tr?.[1] || !value) {
                           return Promise.resolve();
                         }
                         const t0 = tr[0].valueOf();
                         const t1 = tr[1].valueOf();
-                        const v0 = value[0].valueOf();
-                        const v1 = value[1].valueOf();
-                        if (v1 <= v0) return Promise.reject(new Error('上门结束须晚于开始'));
-                        if (v0 < t0 || v1 > t1) {
-                          return Promise.reject(new Error('上门订单时间须在出差服务范围之内'));
+                        const v = value.valueOf();
+                        if (v < t0 || v > t1) {
+                          return Promise.reject(new Error('上门服务时间须在出差服务范围之内'));
+                        }
+                        const endAt = computeServiceEndTime(dayjs(value), tr[1]);
+                        if (!endAt) {
+                          return Promise.reject(new Error('出差结束时间过晚，无法安排上门后服务时长，请调整'));
                         }
                         return Promise.resolve();
                       }
                     })
                   ]}
-                  extra="须在出差范围内，例如出差 22–24 日，上门可选 23 日 08:00–20:00。"
+                  extra="日历与样本统计按该时刻所在日期计算；系统会按上门后约 1 小时生成服务结束时间（不超过出差结束）。"
                 >
-                  <RangePicker
+                  <DatePicker
                     showTime
                     style={{ width: '100%' }}
                     disabledDate={(current) => {
@@ -259,7 +280,6 @@ export function BookingForm({
                     }}
                   />
                 </Form.Item>
-              ) : null}
             </>
           )}
 
@@ -280,7 +300,6 @@ export function BookingForm({
             label="测序类型"
             name="seqType"
             rules={[{ required: true, message: '必填' }]}
-            style={{ gridColumn: '1 / -1' }}
           >
             <Select
               placeholder="请选择"
@@ -289,11 +308,26 @@ export function BookingForm({
               optionFilterProp="label"
             />
           </Form.Item>
+          <Form.Item label="测序数据量" name="seqDataVolume">
+            <Input placeholder="如：200G / 800M reads" />
+          </Form.Item>
+          <Form.Item label="PM负责人" name="pmOwner">
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="请选择PM负责人"
+              options={pmOwners.map((v) => ({ value: v.name, label: v.name }))}
+            />
+          </Form.Item>
           <Form.Item label="实验平台" name="platform" rules={[{ required: true, message: '必填' }]}>
             <Select placeholder="请选择" options={PLATFORMS.map(v => ({ value: v, label: v }))} />
           </Form.Item>
           <Form.Item label="通知方式" name="notifyMethods" style={{ gridColumn: '1 / -1' }}>
             <Checkbox.Group options={notifyOptions} />
+          </Form.Item>
+          <Form.Item label="备注" name="remark" style={{ gridColumn: '1 / -1' }}>
+            <Input.TextArea rows={3} placeholder="可选，填写补充说明" />
           </Form.Item>
         </div>
 

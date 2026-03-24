@@ -49,14 +49,17 @@ export function selectBookingListRowSql(hasTrip, { includeCreatedUpdated = false
       experimenter,
       sample_count AS sampleCount,
       seq_type AS seqType,
+      seq_data_volume AS seqDataVolume,
+      pm_owner AS pmOwner,
       platform,
+      remark,
       notify_methods AS notifyMethods,
       status,
       created_by_user_id AS createdByUserId${tail}
   `;
 }
 
-/** 日历「某日」列表项（字段少于完整行） */
+/** 日历「某日」列表项（与预约登记表单字段对齐，便于弹窗展示） */
 export function selectBookingCalendarDayItemSql(hasTrip) {
   const trip = tripSelectFragment(hasTrip);
   return `
@@ -66,13 +69,19 @@ export function selectBookingCalendarDayItemSql(hasTrip) {
       customer_unit AS customerUnit,
       customer_name AS customerName,
       customer_contact AS customerContact,
+      need_dissociation AS needDissociation,
+      sample_info AS sampleInfo,
       visit_time AS visitTime,
       service_end_time AS serviceEndTime,
       ${trip}
       experimenter,
       sample_count AS sampleCount,
       seq_type AS seqType,
+      seq_data_volume AS seqDataVolume,
+      pm_owner AS pmOwner,
       platform,
+      remark,
+      notify_methods AS notifyMethods,
       status,
       created_by_user_id AS createdByUserId
   `;
@@ -96,7 +105,10 @@ export function selectBookingExportRowSql(hasTrip) {
       experimenter,
       sample_count AS sampleCount,
       seq_type AS seqType,
+      seq_data_volume AS seqDataVolume,
+      pm_owner AS pmOwner,
       platform,
+      remark,
       notify_methods AS notifyMethods
   `;
 }

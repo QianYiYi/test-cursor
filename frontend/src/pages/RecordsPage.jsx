@@ -57,6 +57,7 @@ export function RecordsPage() {
   const { items, total, page, pageSize, loading, lastQuery } = useSelector(s => s.bookings);
   const [experimenters, setExperimenters] = useState([]);
   const [seqTypeOptions, setSeqTypeOptions] = useState([]);
+  const [pmOwners, setPmOwners] = useState([]);
 
   const [filterForm] = Form.useForm();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -71,13 +72,18 @@ export function RecordsPage() {
     {
       title: '操作状态',
       dataIndex: 'status',
-      width: 110,
+      width: 112,
+      onCell: () => ({ style: { overflow: 'visible' } }),
       render: (_, r) =>
         canChangeStatus ? (
           <Select
+            size="small"
             value={r.status}
-            style={{ width: 110 }}
+            style={{ width: '100%', minWidth: 92 }}
             options={STATUS_OPTIONS}
+            optionFilterProp="label"
+            getPopupContainer={() => document.body}
+            dropdownStyle={{ zIndex: 1100 }}
             onChange={async (v) => {
               try {
                 await dispatch(updateBooking({ id: r.id, body: { status: v } })).unwrap();
@@ -102,12 +108,14 @@ export function RecordsPage() {
     { title: '样本及类型', dataIndex: 'sampleInfo', width: 220 },
     { title: '出差范围起', dataIndex: 'tripStart', width: 150, render: (v) => v || '—' },
     { title: '出差范围止', dataIndex: 'tripEnd', width: 150, render: (v) => v || '—' },
-    { title: '上门开始', dataIndex: 'visitTime', width: 170 },
-    { title: '上门结束', dataIndex: 'serviceEndTime', width: 170 },
+    { title: '上门服务时间', dataIndex: 'visitTime', width: 170 },
     { title: '实验员', dataIndex: 'experimenter', width: 110 },
     { title: '样本数量', dataIndex: 'sampleCount', width: 90 },
     { title: '测序类型', dataIndex: 'seqType', width: 220 },
+    { title: '测序数据量', dataIndex: 'seqDataVolume', width: 140, render: (v) => v || '—' },
+    { title: 'PM负责人', dataIndex: 'pmOwner', width: 120, render: (v) => v || '—' },
     { title: '实验平台', dataIndex: 'platform', width: 90 },
+    { title: '备注', dataIndex: 'remark', width: 220, render: (v) => v || '—' },
     {
       title: '通知方式',
       dataIndex: 'notifyMethods',
@@ -182,6 +190,22 @@ export function RecordsPage() {
 
   useEffect(() => {
     let mounted = true;
+    api.listPmOwners()
+      .then((r) => {
+        if (!mounted) return;
+        setPmOwners((r.items || []).filter((p) => p.isActive));
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setPmOwners([]);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
     api.listSeqTypes()
       .then((r) => {
         if (!mounted) return;
@@ -218,6 +242,7 @@ export function RecordsPage() {
               experimenter: values.experimenter || undefined,
               sampleCount: values.sampleCount === undefined ? undefined : String(values.sampleCount),
               seqType: values.seqType || undefined,
+              pmOwner: values.pmOwner || undefined,
               platform: values.platform || undefined,
               status: values.status || undefined,
               visitFrom,
@@ -279,6 +304,15 @@ export function RecordsPage() {
               options={seqTypeOptions.map(v => ({ value: v, label: v }))}
             />
           </Form.Item>
+          <Form.Item name="pmOwner" label="PM负责人">
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              style={{ width: 160 }}
+              options={pmOwners.map(v => ({ value: v.name, label: v.name }))}
+            />
+          </Form.Item>
           <Form.Item name="platform" label="平台">
             <Select allowClear style={{ width: 120 }} options={PLATFORMS.map(v => ({ value: v, label: v }))} />
           </Form.Item>
@@ -326,7 +360,7 @@ export function RecordsPage() {
           columns={columns}
           dataSource={items}
           loading={loading}
-          scroll={{ x: 2020 }}
+          scroll={{ x: 1860 }}
           pagination={{
             current: page,
             pageSize,
@@ -355,6 +389,7 @@ export function RecordsPage() {
         <BookingForm
           experimenters={experimenters}
           seqTypeOptions={seqTypeOptions}
+          pmOwners={pmOwners}
           initialValues={editing}
           submitText="保存修改"
           onSubmit={async (payload) => {

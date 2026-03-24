@@ -56,6 +56,7 @@ function buildWhereFromQuery(q) {
     }
   }
   eq('seq_type', q.seqType);
+  like('pm_owner', q.pmOwner);
   eq('platform', q.platform);
   eq('status', q.status);
   if (q.visitFrom) {
@@ -112,7 +113,10 @@ exportRouter.get('/bookings.xlsx', async (req, res) => {
     { header: '上门实验员', key: 'experimenter', width: 12 },
     { header: '样本数量', key: 'sampleCount', width: 10 },
     { header: '测序类型', key: 'seqType', width: 26 },
+    { header: '测序数据量', key: 'seqDataVolume', width: 14 },
+    { header: 'PM负责人', key: 'pmOwner', width: 14 },
     { header: '实验平台', key: 'platform', width: 10 },
+    { header: '备注', key: 'remark', width: 30 },
     { header: '通知方式', key: 'notifyMethods', width: 22 }
   ];
 
@@ -137,7 +141,10 @@ exportRouter.get('/bookings.xlsx', async (req, res) => {
       experimenter: r.experimenter || '',
       sampleCount: r.sampleCount,
       seqType: r.seqType,
+      seqDataVolume: r.seqDataVolume || '',
+      pmOwner: r.pmOwner || '',
       platform: r.platform,
+      remark: r.remark || '',
       notifyMethods: Array.isArray(notify) ? notify.join(', ') : ''
     });
   }

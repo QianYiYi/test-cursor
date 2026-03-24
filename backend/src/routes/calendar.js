@@ -4,21 +4,46 @@ import { bookingsHasTripTimeColumns, selectBookingCalendarDayItemSql } from '../
 
 export const calendarRouter = express.Router();
 
-/** 单日单量：≤8 不忙，9–16 忙碌，≥17 爆满（消除 8 的区间歧义） */
-function busyLevelFromOrderCount(orderCount) {
-  const n = Number(orderCount || 0);
+function normalizeNotifyMethods(value) {
+  if (value == null) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return value
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+  }
+  return [];
+}
+
+/** 单日样本总量：≤8 不忙，9–16 忙碌，≥17 爆满（与订单数阈值一致，按样本合计判断） */
+function busyLevelFromSampleSum(sampleSum) {
+  const n = Number(sampleSum || 0);
   if (n <= 8) return { code: 'idle', label: '不忙' };
   if (n <= 16) return { code: 'busy', label: '忙碌' };
   return { code: 'full', label: '爆满' };
 }
 
-function overlapsCalendarDay(visitTime, serviceEndTime, dayStr) {
+/** 按「具体上门服务时间」visit_time 的日历日归类（与统计、表单一致） */
+function visitOnCalendarDay(visitTime, dayStr) {
+  const s = String(visitTime || '');
+  return s.length >= 10 ? s.slice(0, 10) === dayStr : false;
+}
+
+function overlapsCalendarDay(startTime, endTime, dayStr) {
+  if (!startTime || !endTime) return false;
   const dayStart = new Date(`${dayStr}T00:00:00`);
   const dayNext = new Date(dayStart);
   dayNext.setDate(dayNext.getDate() + 1);
-  const vs = new Date(String(visitTime).replace(' ', 'T'));
-  const es = new Date(String(serviceEndTime).replace(' ', 'T'));
-  return vs < dayNext && es >= dayStart;
+  const start = new Date(String(startTime).replace(' ', 'T'));
+  const end = new Date(String(endTime).replace(' ', 'T'));
+  if (!Number.isFinite(start.valueOf()) || !Number.isFinite(end.valueOf())) return false;
+  return start < dayNext && end >= dayStart;
 }
 
 function addDaysYmd(ymd, delta) {
@@ -41,6 +66,7 @@ function todayYmd() {
 /** 近 90 天每日：订单数、样本量合计、剩余实验员 */
 calendarRouter.get('/summary', async (req, res) => {
   const pool = getPool();
+  const hasTripCols = await bookingsHasTripTimeColumns();
   const [[{ totalExp }]] = await pool.query(
     `SELECT COUNT(*) AS totalExp FROM experimenters WHERE is_active = 1`
   );
@@ -53,32 +79,57 @@ calendarRouter.get('/summary', async (req, res) => {
   const rangeEnd = `${endRangeYmd} 23:59:59`;
   const rangeStart = `${startYmd} 00:00:00`;
 
-  const [rows] = await pool.query(
+  const rowsSql = hasTripCols
+    ? `
+    SELECT
+      visit_time AS visitTime,
+      service_end_time AS serviceEndTime,
+      trip_start_time AS tripStart,
+      trip_end_time AS tripEnd,
+      sample_count AS sampleCount,
+      experimenter
+    FROM bookings
+    WHERE (visit_time >= ? AND visit_time <= ?)
+       OR (trip_start_time <= ? AND trip_end_time >= ?)
     `
-    SELECT visit_time AS visitTime, service_end_time AS serviceEndTime,
-           sample_count AS sampleCount, experimenter
+    : `
+    SELECT
+      visit_time AS visitTime,
+      service_end_time AS serviceEndTime,
+      NULL AS tripStart,
+      NULL AS tripEnd,
+      sample_count AS sampleCount,
+      experimenter
     FROM bookings
     WHERE visit_time <= ? AND service_end_time >= ?
-    `,
-    [rangeEnd, rangeStart]
-  );
+    `;
+  const rowsParams = hasTripCols
+    ? [rangeStart, rangeEnd, rangeEnd, rangeStart]
+    : [rangeEnd, rangeStart];
+  const [rows] = await pool.query(rowsSql, rowsParams);
 
   const days = [];
   let cursor = startYmd;
   while (cursor <= endRangeYmd) {
     const dayStr = cursor;
-    const overlapping = (rows || []).filter((b) =>
-      overlapsCalendarDay(b.visitTime, b.serviceEndTime, dayStr)
-    );
+    const overlapping = (rows || []).filter((b) => visitOnCalendarDay(b.visitTime, dayStr));
     const orderCount = overlapping.length;
     const sampleSum = overlapping.reduce((acc, b) => acc + Number(b.sampleCount || 0), 0);
     const busyNames = new Set();
-    for (const b of overlapping) {
-      if (b.experimenter && String(b.experimenter).trim()) busyNames.add(String(b.experimenter).trim());
+    for (const b of rows || []) {
+      const busyByTrip = hasTripCols && b.tripStart && b.tripEnd
+        ? overlapsCalendarDay(b.tripStart, b.tripEnd, dayStr)
+        : false;
+      const busyByLegacyService = !hasTripCols
+        ? overlapsCalendarDay(b.visitTime, b.serviceEndTime, dayStr)
+        : false;
+      if ((busyByTrip || busyByLegacyService) && b.experimenter && String(b.experimenter).trim()) {
+        busyNames.add(String(b.experimenter).trim());
+      }
     }
     const busyExperimenters = busyNames.size;
     const remainingExperimenters = Math.max(0, activeN - busyExperimenters);
-    const busyLevel = busyLevelFromOrderCount(orderCount);
+    const busyLevel = busyLevelFromSampleSum(sampleSum);
     days.push({
       day: dayStr,
       orderCount,
@@ -104,29 +155,24 @@ calendarRouter.get('/day', async (req, res) => {
   const hasTripCols = await bookingsHasTripTimeColumns();
   const rowSql = selectBookingCalendarDayItemSql(hasTripCols);
 
-  const [allRows] = await pool.query(
+  const [overlapRows] = await pool.query(
     `
     SELECT
     ${rowSql}
     FROM bookings
-    WHERE visit_time < DATE_ADD(?, INTERVAL 1 DAY)
-      AND service_end_time >= ?
+    WHERE visit_time >= ? AND visit_time < DATE_ADD(?, INTERVAL 1 DAY)
     ORDER BY visit_time ASC, id ASC
     `,
-    [date, dayStart]
-  );
-
-  const overlapRows = (allRows || []).filter((b) =>
-    overlapsCalendarDay(b.visitTime, b.serviceEndTime, date)
+    [dayStart, dayStart]
   );
 
   const companyOrderCount = overlapRows.length;
   const companySampleSum = overlapRows.reduce((acc, b) => acc + Number(b.sampleCount || 0), 0);
 
   const isCustomer = req.user?.roleCode === 'customer_booking';
-  let items = overlapRows;
+  let items = overlapRows || [];
   if (isCustomer) {
-    items = overlapRows.filter((b) => Number(b.createdByUserId) === Number(req.user.id));
+    items = items.filter((b) => Number(b.createdByUserId) === Number(req.user.id));
   }
 
   res.json({
@@ -140,14 +186,20 @@ calendarRouter.get('/day', async (req, res) => {
       customerUnit: r.customerUnit,
       customerName: r.customerName,
       customerContact: r.customerContact,
-      visitTime: r.visitTime,
-      serviceEndTime: r.serviceEndTime,
+      needDissociation: Boolean(r.needDissociation),
+      sampleInfo: r.sampleInfo,
       tripStart: r.tripStart,
       tripEnd: r.tripEnd,
+      visitTime: r.visitTime,
+      serviceEndTime: r.serviceEndTime,
       experimenter: r.experimenter,
       sampleCount: r.sampleCount,
       seqType: r.seqType,
+      seqDataVolume: r.seqDataVolume,
+      pmOwner: r.pmOwner,
       platform: r.platform,
+      notifyMethods: normalizeNotifyMethods(r.notifyMethods),
+      remark: r.remark,
       status: r.status
     }))
   });
