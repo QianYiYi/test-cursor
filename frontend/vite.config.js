@@ -28,6 +28,18 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    build: {
+      rollupOptions: {
+        output: {
+          /** 仅拆 recharts，避免与 antd/react 的循环 chunk；路由 lazy 已拆业务页 */
+          manualChunks(id) {
+            if (id.includes('node_modules') && id.includes('recharts')) {
+              return 'recharts';
+            }
+          }
+        }
+      }
+    },
     server: {
       port: 5173,
       host: true,
